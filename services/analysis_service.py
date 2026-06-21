@@ -16,13 +16,14 @@ PIPELINE ORDER
     2.  Fetch market data          ← market.market_data
     3.  Compute indicators         ← market.indicators
     4.  OpenClaw Agent             ← agents.openclaw
-    5.  Challenge Agent            ← agents.challenge_agent
-    6.  ArmorIQ Risk Engine        ← engines.armoriq
-    7.  Trust Engine               ← engines.trust_engine
-    8.  Execution Controller       ← controller.execution_controller
-    9.  Persist to database        ← database.db.save_trade_log()   (exactly once)
-    10. Memory placeholder         ← memory.trade_memory.save_memory()
-    11. Return FullAnalysisResult
+    5.  Weighted Consensus Engine  ← consensus.consensus_engine
+    6.  Challenge Agent            ← agents.challenge_agent
+    7.  ArmorIQ Risk Engine        ← engines.armoriq
+    8.  Trust Engine               ← engines.trust_engine
+    9.  Execution Controller       ← controller.execution_controller
+    10. Persist to database        ← database.db.save_trade_log()   (exactly once)
+    11. Memory placeholder         ← memory.trade_memory.save_memory()
+    12. Return FullAnalysisResult
 
 DATABASE WRITE CONTRACT
 -----------------------
@@ -38,7 +39,8 @@ import logging
 from functools import partial
 
 from agents.challenge_agent import challenge_recommendation
-from agents.openclaw import generate_trade_recommendation
+from agents.openclaw_agent import generate_vote as generate_openclaw_vote
+from consensus.consensus_engine import get_consensus
 from controller.execution_controller import make_decision
 from database.db import save_trade_log
 from engines.armoriq import evaluate_risk
@@ -101,12 +103,12 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
     )
 
     # ── Step 4: OpenClaw Agent ─────────────────────────────────────────────────
-    logger.info("[3/8] Running OpenClaw Agent for %s", symbol)
+    logger.info("[3/9] Running OpenClaw Agent for %s", symbol)
     try:
-        trade_recommendation = await loop.run_in_executor(
+        openclaw_vote = await loop.run_in_executor(
             None,
             partial(
-                generate_trade_recommendation,
+                generate_openclaw_vote,
                 symbol,
                 market_snapshot,
                 technical_indicators,
@@ -117,8 +119,26 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
             f"OpenClaw Agent failed for '{symbol}': {exc}"
         ) from exc
 
-    # ── Step 5: Challenge Agent ────────────────────────────────────────────────
-    logger.info("[4/8] Running Challenge Agent for %s", symbol)
+    # ── Step 5: Weighted Consensus Engine ──────────────────────────────────────
+    logger.info("[4/9] Running Weighted Consensus Engine for %s", symbol)
+    try:
+        trade_recommendation = await loop.run_in_executor(
+            None,
+            partial(
+                get_consensus,
+                symbol,
+                openclaw_vote,
+                market_snapshot,
+                technical_indicators,
+            ),
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Consensus Engine failed for '{symbol}': {exc}"
+        ) from exc
+
+    # ── Step 6: Challenge Agent ────────────────────────────────────────────────
+    logger.info("[5/9] Running Challenge Agent for %s", symbol)
     try:
         challenge_result = await loop.run_in_executor(
             None,
@@ -129,20 +149,20 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
             f"Challenge Agent failed for '{symbol}': {exc}"
         ) from exc
 
-    # ── Step 6: ArmorIQ Risk Engine ────────────────────────────────────────────
-    logger.info("[5/8] Running ArmorIQ Risk Engine for %s", symbol)
+    # ── Step 7: ArmorIQ Risk Engine ────────────────────────────────────────────
+    logger.info("[6/9] Running ArmorIQ Risk Engine for %s", symbol)
     risk_assessment = evaluate_risk(trade_recommendation, technical_indicators)
 
-    # ── Step 7: Trust Engine ───────────────────────────────────────────────────
-    logger.info("[6/8] Running Trust Engine for %s", symbol)
+    # ── Step 8: Trust Engine ───────────────────────────────────────────────────
+    logger.info("[7/9] Running Trust Engine for %s", symbol)
     trust_assessment = compute_trust(trade_recommendation, risk_assessment)
 
-    # ── Step 8: Execution Controller ──────────────────────────────────────────
-    logger.info("[7/8] Running Execution Controller for %s", symbol)
+    # ── Step 9: Execution Controller ──────────────────────────────────────────
+    logger.info("[8/9] Running Execution Controller for %s", symbol)
     execution_decision = make_decision(trust_assessment)
 
-    # ── Step 9: Persist to database (exactly once) ────────────────────────────
-    logger.info("[8/8] Persisting trade log for %s", symbol)
+    # ── Step 10: Persist to database (exactly once) ────────────────────────────
+    logger.info("[9/9] Persisting trade log for %s", symbol)
     rec = trade_recommendation
     risk = risk_assessment
     trust = trust_assessment
@@ -177,7 +197,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
             f"Failed to persist trade log for '{symbol}': {exc}"
         ) from exc
 
-    # ── Step 10: Memory placeholder (no-op; future ChromaDB) ─────────────────
+    # ── Step 11: Memory placeholder (no-op; future ChromaDB) ─────────────────
     result = FullAnalysisResult(
         trade_recommendation=trade_recommendation,
         challenge_result=challenge_result,
@@ -189,7 +209,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
     )
     save_memory(result)  # Currently a no-op — see memory/trade_memory.py
 
-    # ── Step 11: Return FullAnalysisResult ────────────────────────────────────
+    # ── Step 12: Return FullAnalysisResult ────────────────────────────────────
     logger.info(
         "Pipeline complete: %s %d %s → %s (trust=%d, risk=%d)",
         rec.action,
