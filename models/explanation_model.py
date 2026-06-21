@@ -46,6 +46,9 @@ class ExplanationResult(BaseModel):
     trust_summary: str = Field(
         ..., description="Summary of Trust Engine's trust assessment"
     )
+    position_summary: str = Field(
+        ..., description="Summary of dynamic position sizing"
+    )
     decision_summary: str = Field(
         ..., description="Overall summary of why the execution decision was made"
     )

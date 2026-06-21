@@ -9,6 +9,7 @@ No OpenAI calls. No database writes. No Streamlit imports. No FastAPI imports.
 
 from models.agent_vote_model import AgentVote
 from models.explanation_model import AgentExplanation, ExplanationResult
+from models.position_model import PositionSizingResult
 from models.trade_model import (
     ChallengeResult,
     ExecutionDecision,
@@ -25,6 +26,7 @@ def generate_explanation(
     trust: TrustAssessment,
     decision: ExecutionDecision,
     votes: list[AgentVote],
+    position_sizing: PositionSizingResult,
 ) -> ExplanationResult:
     """
     Generate a deterministic explanation for the complete pipeline execution.
@@ -55,6 +57,13 @@ def generate_explanation(
     
     trust_summary = f"Trust Level: {trust.trust_level} (Score: {trust.trust_score})."
     
+    position_summary = (
+        f"Method: {position_sizing.position_method} | "
+        f"Qty: {position_sizing.quantity} | "
+        f"Risk: ${position_sizing.risk_amount:.2f} | "
+        f"Capital: ${position_sizing.capital_exposure:.2f}"
+    )
+
     decision_summary = f"Final decision was to {decision.decision}. {decision.rationale}"
 
     return ExplanationResult(
@@ -64,5 +73,6 @@ def generate_explanation(
         challenge_summary=challenge_summary,
         risk_summary=risk_summary,
         trust_summary=trust_summary,
+        position_summary=position_summary,
         decision_summary=decision_summary,
     )

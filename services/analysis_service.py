@@ -52,6 +52,7 @@ from market.indicators import get_indicator_summary
 from market.market_data import fetch_market_data, get_latest_price, validate_symbol
 from memory.trade_memory import save_memory
 from models.trade_model import FullAnalysisResult
+from risk.position_sizer import calculate_position_size
 from services.explanation_service import generate_explanation
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,22 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
             f"Consensus Engine failed for '{symbol}': {exc}"
         ) from exc
 
+    # ── Step 5.5: Dynamic Position Sizing ──────────────────────────────────────
+    logger.info("[4.5/9] Calculating Dynamic Position Size for %s", symbol)
+    
+    current_price = market_snapshot.get("current_price", 0.0)
+    atr = technical_indicators.get("atr", 0.0)
+    portfolio_value = 100_000.0  # Simulated default portfolio size
+    
+    position_sizing = calculate_position_size(
+        portfolio_value=portfolio_value,
+        price=current_price,
+        atr=atr,
+    )
+    
+    if trade_recommendation.action in ("BUY", "SELL"):
+        trade_recommendation.quantity = position_sizing.quantity
+
     # ── Step 6: Challenge Agent ────────────────────────────────────────────────
     logger.info("[5/9] Running Challenge Agent for %s", symbol)
     try:
@@ -180,6 +197,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
         trust_assessment,
         execution_decision,
         votes,
+        position_sizing,
     )
 
     # ── Step 10: Persist to database (exactly once) ────────────────────────────
@@ -226,6 +244,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
         trust_assessment=trust_assessment,
         execution_decision=execution_decision,
         explanation=explanation,
+        position_sizing=position_sizing,
         market_snapshot=market_snapshot,
         technical_indicators=technical_indicators,
     )

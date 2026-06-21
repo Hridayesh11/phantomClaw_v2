@@ -433,6 +433,67 @@ def _render_result(result: FullAnalysisResult, symbol: str) -> None:
         unsafe_allow_html=True,
     )
 
+    # ── 8. Why This Trade? (Explainability Layer) ─────────────────────────────
+    if result.explanation:
+        st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+        st.markdown("<div class='pc-card-title' style='font-size:1rem;color:#e6edf3'>🔍 WHY THIS TRADE?</div>", unsafe_allow_html=True)
+        
+        # Agent Breakdown
+        st.markdown("<div class='pc-card'>", unsafe_allow_html=True)
+        for agent in result.explanation.agent_breakdown:
+            color = "#3fb950" if agent.signal == "BUY" else ("#f85149" if agent.signal == "SELL" else "#8b949e")
+            
+            st.markdown(f"**{agent.agent_name}**")
+            st.markdown(
+                f"<span style='color:{color};font-weight:bold;font-size:1.1rem'>{agent.signal}</span> "
+                f"<span style='color:#8b949e'>({agent.confidence:.0%})</span>", 
+                unsafe_allow_html=True
+            )
+            
+            # Confidence bar
+            conf_pct = int(agent.confidence * 100)
+            st.markdown(
+                f"<div style='background:#30363d;border-radius:2px;height:4px;margin:0.3rem 0'>"
+                f"<div style='background:{color};width:{conf_pct}%;height:4px;border-radius:2px'></div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            
+            # Expandable reasoning
+            with st.expander("View Reasoning"):
+                st.write(agent.reason)
+            
+            st.markdown("<div style='margin-bottom:1rem'></div>", unsafe_allow_html=True)
+            
+        # Summaries
+        st.markdown("---")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Risk", risk.risk_level)
+        c2.metric("Trust", trust.trust_score)
+        c3.metric("Decision", result.explanation.final_decision)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── 9. Position Sizing ────────────────────────────────────────────────────
+    if result.position_sizing:
+        pos = result.position_sizing
+        st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+        st.markdown("<div class='pc-card-title' style='font-size:1rem;color:#e6edf3'>📏 POSITION SIZE</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='pc-card'>", unsafe_allow_html=True)
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Suggested Quantity", f"{pos.quantity:,}")
+        p2.metric("Capital Exposure", f"${pos.capital_exposure:,.2f}")
+        p3.metric("Position Method", pos.position_method)
+        
+        st.markdown("<div style='margin:1rem 0'></div>", unsafe_allow_html=True)
+        
+        p4, p5, p6, p7 = st.columns(4)
+        p4.metric("Portfolio Value", "$100,000.00")  # Simulated default
+        p5.metric("Risk Per Trade", f"${pos.risk_amount:,.2f}")
+        p6.metric("ATR", f"{pos.atr:.4f}")
+        p7.metric("Stop Distance", f"${pos.stop_distance:.4f}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
 def _render_history() -> None:
     """Render the live trade history table."""

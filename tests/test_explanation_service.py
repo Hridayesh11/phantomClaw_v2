@@ -6,6 +6,7 @@ Tests for the Phase 9 Explainability Layer.
 
 from models.agent_vote_model import AgentVote
 from models.explanation_model import ExplanationResult
+from models.position_model import PositionSizingResult
 from models.trade_model import (
     ChallengeResult,
     ExecutionDecision,
@@ -59,6 +60,16 @@ def get_recommendation(action: str) -> TradeRecommendation:
         reason=f"Consensus selected {action}.",
     )
 
+def get_position_sizing() -> PositionSizingResult:
+    return PositionSizingResult(
+        quantity=142,
+        risk_amount=1000.0,
+        stop_distance=7.0,
+        atr=3.5,
+        capital_exposure=28400.0,
+        position_method="ATR"
+    )
+
 # ─── Tests ───────────────────────────────────────────────────────────────────
 
 def test_explanation_buy_execute():
@@ -66,7 +77,7 @@ def test_explanation_buy_execute():
     dec = get_decision("EXECUTE")
     
     result = generate_explanation(
-        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes()
+        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing()
     )
     
     assert isinstance(result, ExplanationResult)
@@ -88,7 +99,7 @@ def test_explanation_sell_execute():
     dec = get_decision("EXECUTE")
     
     result = generate_explanation(
-        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes()
+        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing()
     )
     
     assert result.final_decision == "EXECUTE"
@@ -99,7 +110,7 @@ def test_explanation_hold_block():
     dec = get_decision("BLOCK")
     
     result = generate_explanation(
-        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes()
+        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing()
     )
     
     assert result.final_decision == "BLOCK"
@@ -109,7 +120,7 @@ def test_risk_summary_no_factors():
     risk = RiskAssessment(risk_score=10, risk_level="LOW", risk_factors=[])
     
     result = generate_explanation(
-        get_recommendation("BUY"), get_challenge(), risk, get_trust(), get_decision("EXECUTE"), get_base_votes()
+        get_recommendation("BUY"), get_challenge(), risk, get_trust(), get_decision("EXECUTE"), get_base_votes(), get_position_sizing()
     )
     
     assert "Factors: None" in result.risk_summary
@@ -118,7 +129,7 @@ def test_trust_summary_content():
     trust = TrustAssessment(trust_score=30, trust_level="LOW")
     
     result = generate_explanation(
-        get_recommendation("BUY"), get_challenge(), get_risk(), trust, get_decision("BLOCK"), get_base_votes()
+        get_recommendation("BUY"), get_challenge(), get_risk(), trust, get_decision("BLOCK"), get_base_votes(), get_position_sizing()
     )
     
     assert "Trust Level: LOW (Score: 30)" in result.trust_summary

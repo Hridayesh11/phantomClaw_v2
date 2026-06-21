@@ -18,6 +18,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models.explanation_model import ExplanationResult
+from models.position_model import PositionSizingResult
 
 
 # ─── OpenClaw Agent Output ────────────────────────────────────────────────────
@@ -192,6 +193,9 @@ class FullAnalysisResult(BaseModel):
     )
     explanation: Optional[ExplanationResult] = Field(
         default=None, description="Detailed explanation of the pipeline's reasoning"
+    )
+    position_sizing: Optional[PositionSizingResult] = Field(
+        default=None, description="Dynamic position sizing calculation result"
     )
     timestamp: datetime = Field(
         default_factory=datetime.utcnow,
