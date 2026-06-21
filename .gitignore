@@ -1,0 +1,20 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Database
+database/trades.db
+
+# Streamlit
+.streamlit/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
