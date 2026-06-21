@@ -39,7 +39,10 @@ import logging
 from functools import partial
 
 from agents.challenge_agent import challenge_recommendation
+from agents.mean_reversion_agent import analyze as mean_reversion_analyze
+from agents.momentum_agent import analyze as momentum_analyze
 from agents.openclaw_agent import generate_vote as generate_openclaw_vote
+from agents.trend_agent import analyze as trend_analyze
 from consensus.consensus_engine import get_consensus
 from controller.execution_controller import make_decision
 from database.db import save_trade_log
@@ -49,6 +52,7 @@ from market.indicators import get_indicator_summary
 from market.market_data import fetch_market_data, get_latest_price, validate_symbol
 from memory.trade_memory import save_memory
 from models.trade_model import FullAnalysisResult
+from services.explanation_service import generate_explanation
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +165,23 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
     logger.info("[8/9] Running Execution Controller for %s", symbol)
     execution_decision = make_decision(trust_assessment)
 
+    # ── Step 9.5: Explanation Layer ───────────────────────────────────────────
+    logger.info("[8.5/9] Generating Explanation for %s", symbol)
+    votes = [
+        openclaw_vote,
+        trend_analyze(symbol, market_snapshot, technical_indicators),
+        momentum_analyze(symbol, market_snapshot, technical_indicators),
+        mean_reversion_analyze(symbol, market_snapshot, technical_indicators),
+    ]
+    explanation = generate_explanation(
+        trade_recommendation,
+        challenge_result,
+        risk_assessment,
+        trust_assessment,
+        execution_decision,
+        votes,
+    )
+
     # ── Step 10: Persist to database (exactly once) ────────────────────────────
     logger.info("[9/9] Persisting trade log for %s", symbol)
     rec = trade_recommendation
@@ -204,6 +225,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
         risk_assessment=risk_assessment,
         trust_assessment=trust_assessment,
         execution_decision=execution_decision,
+        explanation=explanation,
         market_snapshot=market_snapshot,
         technical_indicators=technical_indicators,
     )

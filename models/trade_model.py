@@ -17,6 +17,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from models.explanation_model import ExplanationResult
+
 
 # ─── OpenClaw Agent Output ────────────────────────────────────────────────────
 
@@ -187,6 +189,9 @@ class FullAnalysisResult(BaseModel):
     market_snapshot: dict = Field(..., description="Raw OHLCV snapshot dict from market module")
     technical_indicators: dict = Field(
         ..., description="Computed indicator values dict from indicators module"
+    )
+    explanation: Optional[ExplanationResult] = Field(
+        default=None, description="Detailed explanation of the pipeline's reasoning"
     )
     timestamp: datetime = Field(
         default_factory=datetime.utcnow,
