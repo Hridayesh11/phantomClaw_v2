@@ -1,30 +1,35 @@
 """
 app.py
 ------
-Streamlit dashboard for PhantomClaw v2.
+Streamlit multi-tab dashboard for PhantomClaw v2.
 
-This file contains NO business logic. Its only responsibilities are:
-  - Render the PhantomClaw user interface.
-  - Delegate all analysis to services/analysis_service.run_full_analysis().
-  - Display results from the returned FullAnalysisResult.
+Tabs:
+  1. Live Analysis  — full AI pipeline via run_full_analysis()
+  2. Backtesting    — deterministic simulation via run_backtest()
+  3. Analytics      — historical trade analytics from the database
+
+This file contains NO business logic. No OpenAI calls. No DB writes.
 
 Architecture:
     Streamlit (app.py)
-        ↓
-    analysis_service.run_full_analysis()
-        ↓
-    Pipeline
+        ↓ tab 1          ↓ tab 2             ↓ tab 3
+    run_full_analysis()  run_backtest()   get_recent_trades()
+        ↓                    ↓
+    Pipeline           Backtest Engine
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date, timedelta
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit as st
 
+from backtesting.backtest_engine import run_backtest
 from database.db import get_recent_trades, init_db
 from market.market_data import fetch_market_data, validate_symbol
 from models.trade_model import FullAnalysisResult
@@ -118,6 +123,23 @@ st.markdown(
     [data-testid="stMetricValue"] { color: #e6edf3; font-weight: 700; }
     [data-testid="stMetricLabel"] { color: #8b949e; font-size: 0.78rem; }
 
+    /* Tab styling */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        background: #161b22;
+        border-radius: 8px;
+        padding: 0.25rem;
+        gap: 0.25rem;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        color: #8b949e;
+        font-weight: 600;
+    }
+    [data-testid="stTabs"] [aria-selected="true"] {
+        color: #e6edf3;
+        background: #30363d;
+        border-radius: 6px;
+    }
+
     /* Hide default Streamlit branding */
     #MainMenu, footer { visibility: hidden; }
     </style>
@@ -125,9 +147,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ─── DB Init ──────────────────────────────────────────────────────────────────
+# ─── DB Init (once per session) ───────────────────────────────────────────────
 
-init_db()
+if "db_initialized" not in st.session_state:
+    init_db()
+    st.session_state["db_initialized"] = True
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -139,14 +163,46 @@ with st.sidebar:
     )
     st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
 
+    # ── Live Analysis inputs ───────────────────────────────────────────────────
+    st.markdown("<div class='pc-card-title'>Live Analysis</div>", unsafe_allow_html=True)
     symbol_input = st.text_input(
         "Ticker Symbol",
         value="AAPL",
         placeholder="e.g. AAPL, TSLA, NVDA",
         help="Enter any valid stock ticker symbol.",
+        key="live_symbol",
     ).strip().upper()
+    analyze_clicked = st.button("🔍 Analyze", use_container_width=True, type="primary", key="live_analyze_btn")
 
-    analyze_clicked = st.button("🔍 Analyze", use_container_width=True, type="primary")
+    st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+
+    # ── Backtesting inputs ─────────────────────────────────────────────────────
+    st.markdown("<div class='pc-card-title'>Backtesting</div>", unsafe_allow_html=True)
+    bt_symbol = st.text_input(
+        "Backtest Symbol",
+        value="AAPL",
+        placeholder="e.g. AAPL, NVDA",
+        key="bt_symbol",
+    ).strip().upper()
+    bt_start = st.date_input(
+        "Start Date",
+        value=date.today() - timedelta(days=365),
+        key="bt_start",
+    )
+    bt_end = st.date_input(
+        "End Date",
+        value=date.today() - timedelta(days=1),
+        key="bt_end",
+    )
+    bt_cash = st.number_input(
+        "Initial Capital ($)",
+        min_value=1_000,
+        max_value=10_000_000,
+        value=100_000,
+        step=10_000,
+        key="bt_cash",
+    )
+    backtest_clicked = st.button("⚡ Run Backtest", use_container_width=True, key="bt_run_btn")
 
     st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
     st.markdown(
@@ -170,13 +226,6 @@ st.markdown(
 st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
 
 
-# ─── DB Init (once per session) ──────────────────────────────────────────────
-
-if "db_initialized" not in st.session_state:
-    init_db()
-    st.session_state["db_initialized"] = True
-
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _risk_color(level: str) -> str:
@@ -189,6 +238,29 @@ def _risk_color(level: str) -> str:
 def get_chart_data(symbol: str):
     """Fetch 3-month OHLCV data, cached for 5 minutes to avoid redundant API calls."""
     return fetch_market_data(symbol, period="3mo", interval="1d")
+
+
+@st.cache_data(ttl=120)
+def get_analytics_data() -> pd.DataFrame:
+    """Load recent trades from DB, cached for 2 minutes."""
+    rows = get_recent_trades(limit=500)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def _dark_layout(fig: go.Figure, title: str = "", height: int = 340) -> go.Figure:
+    """Apply the standard dark theme to any Plotly figure."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#161b22",
+        margin=dict(l=0, r=0, t=36, b=0),
+        title=dict(text=title, font=dict(color="#e6edf3", size=13)),
+        xaxis=dict(gridcolor="#30363d", color="#8b949e"),
+        yaxis=dict(gridcolor="#30363d", color="#8b949e"),
+        font=dict(color="#8b949e"),
+        height=height,
+    )
+    return fig
 
 
 def _render_price_chart(symbol: str) -> None:
@@ -212,32 +284,22 @@ def _render_price_chart(symbol: str) -> None:
             )
         ]
     )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0d1117",
-        plot_bgcolor="#161b22",
-        margin=dict(l=0, r=0, t=32, b=0),
-        xaxis_rangeslider_visible=False,
-        title=dict(
-            text=f"{symbol} — 3-Month Price History",
-            font=dict(color="#e6edf3", size=14),
-        ),
-        xaxis=dict(gridcolor="#30363d", color="#8b949e"),
-        yaxis=dict(gridcolor="#30363d", color="#8b949e"),
-        height=340,
-    )
+    fig = _dark_layout(fig, f"{symbol} — 3-Month Price History", height=340)
+    fig.update_layout(xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
 
-def _render_result(result: FullAnalysisResult, symbol: str) -> None:
-    """Render all 8 dashboard sections from a FullAnalysisResult."""
+# ─── Tab 1 Renderer ───────────────────────────────────────────────────────────
 
-    rec       = result.trade_recommendation
-    challenge = result.challenge_result
-    risk      = result.risk_assessment
-    trust     = result.trust_assessment
-    decision  = result.execution_decision
-    market    = result.market_snapshot
+def _render_result(result: FullAnalysisResult, symbol: str) -> None:
+    """Render all 8 live-analysis sections from a FullAnalysisResult."""
+
+    rec        = result.trade_recommendation
+    challenge  = result.challenge_result
+    risk       = result.risk_assessment
+    trust      = result.trust_assessment
+    decision   = result.execution_decision
+    market     = result.market_snapshot
     indicators = result.technical_indicators
 
     # ── Price Chart ───────────────────────────────────────────────────────────
@@ -373,7 +435,7 @@ def _render_result(result: FullAnalysisResult, symbol: str) -> None:
 
 
 def _render_history() -> None:
-    """Render the trade history table."""
+    """Render the live trade history table."""
     st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
     st.markdown("<div class='pc-card-title'>📋 Trade History</div>", unsafe_allow_html=True)
 
@@ -404,41 +466,282 @@ def _render_history() -> None:
     )
 
 
-# ─── Analysis Trigger ─────────────────────────────────────────────────────────
+# ─── Tab 2 Renderer ───────────────────────────────────────────────────────────
 
-if analyze_clicked:
-    if not symbol_input:
-        st.error("Please enter a ticker symbol before clicking Analyze.")
-    else:
-        logger.info("Dashboard: analysis requested for %s", symbol_input)
-        with st.spinner(f"Running PhantomClaw pipeline for **{symbol_input}**…"):
-            try:
-                result: FullAnalysisResult = run_analysis_sync(symbol_input)
-                st.session_state["last_result"] = result
-                st.session_state["last_symbol"] = symbol_input
-                logger.info("Dashboard: analysis complete for %s", symbol_input)
-            except ValueError as exc:
-                st.error(f"**Invalid request:** {exc}")
-                logger.warning("Dashboard ValueError for %s: %s", symbol_input, exc)
-            except RuntimeError as exc:
-                st.error(f"**Pipeline error:** {exc}")
-                logger.error("Dashboard RuntimeError for %s: %s", symbol_input, exc)
-            except Exception as exc:
-                st.error(f"**Unexpected error:** {exc}")
-                logger.exception("Dashboard unexpected error for %s: %s", symbol_input, exc)
-
-# ─── Results ──────────────────────────────────────────────────────────────────
-
-if "last_result" in st.session_state:
-    _render_result(st.session_state["last_result"], st.session_state["last_symbol"])
-else:
-    st.markdown(
-        "<div style='text-align:center;padding:4rem 0;color:#8b949e'>"
-        "<div style='font-size:3rem'>🔍</div>"
-        "<p style='font-size:1.1rem;margin-top:0.5rem'>Enter a ticker symbol and click <b>Analyze</b> to begin.</p>"
-        "</div>",
-        unsafe_allow_html=True,
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_equity_chart(equity_curve: list[dict]) -> go.Figure:
+    """Render and cache the equity curve line chart."""
+    dates   = [e["date"] for e in equity_curve]
+    equities = [e["equity"] for e in equity_curve]
+    fig = go.Figure(
+        go.Scatter(
+            x=dates,
+            y=equities,
+            mode="lines",
+            line=dict(color="#3fb950", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(63,185,80,0.08)",
+            name="Portfolio Equity",
+        )
     )
+    return _dark_layout(fig, "Portfolio Equity Curve", height=360)
 
-# ── 8. Trade History (always visible) ─────────────────────────────────────────
-_render_history()
+
+def _render_backtest(result: dict) -> None:
+    """Render backtest results: metrics, equity curve, trade table."""
+    metrics = result["metrics"]
+    summary = result["summary"]
+
+    # ── Summary Metrics ───────────────────────────────────────────────────────
+    st.markdown("<div class='pc-card-title'>📊 Backtest Summary</div>", unsafe_allow_html=True)
+    m1, m2, m3, m4 = st.columns(4)
+    ret_pct = summary["return_pct"]
+    m1.metric("Total Return", f"{ret_pct:+.2f}%", delta=f"{ret_pct:+.2f}%")
+    m2.metric("Win Rate",     f"{summary['win_rate']:.1f}%")
+    m3.metric("Max Drawdown", f"{summary['max_drawdown']:.2f}%")
+    m4.metric("Total Trades", metrics["trade_counts"]["total"])
+
+    es = metrics["equity_stats"]
+    e1, e2, e3, e4 = st.columns(4)
+    e1.metric("Initial Capital", f"${es['start']:,.0f}")
+    e2.metric("Final Equity",    f"${es['final']:,.0f}")
+    e3.metric("Peak Equity",     f"${es['peak']:,.0f}")
+    e4.metric("Trough Equity",   f"${es['trough']:,.0f}")
+
+    st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+
+    # ── Equity Curve ──────────────────────────────────────────────────────────
+    st.markdown("<div class='pc-card-title'>📈 Equity Curve</div>", unsafe_allow_html=True)
+    if result["equity_curve"]:
+        fig = _cached_equity_chart(tuple(result["equity_curve"]))  # type: ignore[arg-type]
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No equity curve data to display.")
+
+    st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+
+    # ── Trade Table ───────────────────────────────────────────────────────────
+    st.markdown("<div class='pc-card-title'>🗂️ Executed Trades</div>", unsafe_allow_html=True)
+    trades = result["trade_history"]
+    if not trades:
+        st.info("No trades were executed during the backtest period.")
+        return
+
+    df = pd.DataFrame(trades)
+    show_cols = [c for c in ["date", "action", "price", "quantity", "cash_after", "shares_after"] if c in df.columns]
+    df_show = df[show_cols].copy()
+    if "price" in df_show.columns:
+        df_show["price"] = df_show["price"].map(lambda v: f"${v:,.2f}")
+    if "cash_after" in df_show.columns:
+        df_show["cash_after"] = df_show["cash_after"].map(lambda v: f"${v:,.2f}")
+
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+
+# ─── Tab 3 Renderer ───────────────────────────────────────────────────────────
+
+def _render_analytics() -> None:
+    """Render analytics charts and stats from the historical trade database."""
+    df = get_analytics_data()
+
+    if df.empty:
+        st.markdown(
+            "<div style='text-align:center;padding:4rem 0;color:#8b949e'>"
+            "<div style='font-size:3rem'>📊</div>"
+            "<p style='font-size:1.1rem;margin-top:0.5rem'>No trade data yet — run some analyses first.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Summary Metrics ───────────────────────────────────────────────────────
+    st.markdown("<div class='pc-card-title'>📊 Overview</div>", unsafe_allow_html=True)
+    a1, a2, a3 = st.columns(3)
+    a1.metric("Total Trades",       len(df))
+    a2.metric("Avg Risk Score",     f"{df['risk_score'].mean():.1f}" if "risk_score" in df else "N/A")
+    a3.metric("Avg Trust Score",    f"{df['trust_score'].mean():.1f}" if "trust_score" in df else "N/A")
+
+    st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+
+    chart_l, chart_r = st.columns(2)
+
+    # ── Decision Distribution Pie ─────────────────────────────────────────────
+    with chart_l:
+        st.markdown("<div class='pc-card-title'>🎯 Decision Distribution</div>", unsafe_allow_html=True)
+        if "decision" in df.columns:
+            decision_counts = df["decision"].value_counts().reset_index()
+            decision_counts.columns = ["decision", "count"]
+            color_map = {"EXECUTE": "#3fb950", "HOLD": "#d29922", "BLOCK": "#f85149"}
+            fig_pie = px.pie(
+                decision_counts,
+                names="decision",
+                values="count",
+                color="decision",
+                color_discrete_map=color_map,
+                hole=0.45,
+            )
+            fig_pie = _dark_layout(fig_pie, height=300)
+            fig_pie.update_traces(textfont_color="#e6edf3")
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+    # ── Top Symbols Bar Chart ─────────────────────────────────────────────────
+    with chart_r:
+        st.markdown("<div class='pc-card-title'>🏆 Top Symbols</div>", unsafe_allow_html=True)
+        if "symbol" in df.columns:
+            sym_counts = df["symbol"].value_counts().head(10).reset_index()
+            sym_counts.columns = ["symbol", "count"]
+            fig_bar = go.Figure(
+                go.Bar(
+                    x=sym_counts["symbol"],
+                    y=sym_counts["count"],
+                    marker_color="#3fb950",
+                    marker_line_color="#30363d",
+                    marker_line_width=1,
+                )
+            )
+            fig_bar = _dark_layout(fig_bar, height=300)
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+
+    hist_l, hist_r = st.columns(2)
+
+    # ── Risk Score Histogram ──────────────────────────────────────────────────
+    with hist_l:
+        st.markdown("<div class='pc-card-title'>🛡️ Risk Score Distribution</div>", unsafe_allow_html=True)
+        if "risk_score" in df.columns:
+            fig_risk = go.Figure(
+                go.Histogram(
+                    x=df["risk_score"],
+                    nbinsx=20,
+                    marker_color="#f85149",
+                    marker_line_color="#30363d",
+                    marker_line_width=1,
+                    opacity=0.85,
+                )
+            )
+            fig_risk = _dark_layout(fig_risk, height=280)
+            st.plotly_chart(fig_risk, use_container_width=True)
+
+    # ── Trust Score Histogram ─────────────────────────────────────────────────
+    with hist_r:
+        st.markdown("<div class='pc-card-title'>🔐 Trust Score Distribution</div>", unsafe_allow_html=True)
+        if "trust_score" in df.columns:
+            fig_trust = go.Figure(
+                go.Histogram(
+                    x=df["trust_score"],
+                    nbinsx=20,
+                    marker_color="#3fb950",
+                    marker_line_color="#30363d",
+                    marker_line_width=1,
+                    opacity=0.85,
+                )
+            )
+            fig_trust = _dark_layout(fig_trust, height=280)
+            st.plotly_chart(fig_trust, use_container_width=True)
+
+
+# ─── Tabs ─────────────────────────────────────────────────────────────────────
+
+tab_live, tab_backtest, tab_analytics = st.tabs([
+    "🔍 Live Analysis",
+    "⚡ Backtesting",
+    "📊 Analytics",
+])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 1 — LIVE ANALYSIS
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_live:
+    if analyze_clicked:
+        if not symbol_input:
+            st.error("Please enter a ticker symbol before clicking Analyze.")
+        else:
+            logger.info("Dashboard: analysis requested for %s", symbol_input)
+            with st.spinner(f"Running PhantomClaw pipeline for **{symbol_input}**…"):
+                try:
+                    result: FullAnalysisResult = run_analysis_sync(symbol_input)
+                    st.session_state["last_result"] = result
+                    st.session_state["last_symbol"] = symbol_input
+                    logger.info("Dashboard: analysis complete for %s", symbol_input)
+                except ValueError as exc:
+                    st.error(f"**Invalid request:** {exc}")
+                    logger.warning("Dashboard ValueError for %s: %s", symbol_input, exc)
+                except RuntimeError as exc:
+                    st.error(f"**Pipeline error:** {exc}")
+                    logger.error("Dashboard RuntimeError for %s: %s", symbol_input, exc)
+                except Exception as exc:
+                    st.error(f"**Unexpected error:** {exc}")
+                    logger.exception("Dashboard unexpected error for %s: %s", symbol_input, exc)
+
+    if "last_result" in st.session_state:
+        _render_result(st.session_state["last_result"], st.session_state["last_symbol"])
+    else:
+        st.markdown(
+            "<div style='text-align:center;padding:4rem 0;color:#8b949e'>"
+            "<div style='font-size:3rem'>🔍</div>"
+            "<p style='font-size:1.1rem;margin-top:0.5rem'>Enter a ticker symbol and click <b>Analyze</b> to begin.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── 8. Trade History (always visible) ────────────────────────────────────
+    _render_history()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — BACKTESTING
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_backtest:
+    if backtest_clicked:
+        if not bt_symbol:
+            st.error("Please enter a symbol for the backtest.")
+        elif bt_start >= bt_end:
+            st.error("Start date must be before end date.")
+        else:
+            logger.info(
+                "Dashboard: backtest requested for %s [%s → %s]",
+                bt_symbol, bt_start, bt_end,
+            )
+            with st.spinner(f"Running backtest for **{bt_symbol}** ({bt_start} → {bt_end})…"):
+                try:
+                    bt_result = run_backtest(
+                        symbol=bt_symbol,
+                        start_date=bt_start,
+                        end_date=bt_end,
+                        initial_cash=float(bt_cash),
+                    )
+                    st.session_state["last_backtest"] = bt_result
+                    logger.info("Dashboard: backtest complete for %s", bt_symbol)
+                except ValueError as exc:
+                    st.error(f"**Invalid backtest parameters:** {exc}")
+                    logger.warning("Backtest ValueError: %s", exc)
+                except RuntimeError as exc:
+                    st.error(f"**Backtest engine error:** {exc}")
+                    logger.error("Backtest RuntimeError: %s", exc)
+                except Exception as exc:
+                    st.error(f"**Unexpected error:** {exc}")
+                    logger.exception("Backtest unexpected error: %s", exc)
+
+    if "last_backtest" in st.session_state:
+        _render_backtest(st.session_state["last_backtest"])
+    else:
+        st.markdown(
+            "<div style='text-align:center;padding:4rem 0;color:#8b949e'>"
+            "<div style='font-size:3rem'>⚡</div>"
+            "<p style='font-size:1.1rem;margin-top:0.5rem'>"
+            "Configure your backtest in the sidebar and click <b>Run Backtest</b>."
+            "</p></div>",
+            unsafe_allow_html=True,
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — ANALYTICS
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_analytics:
+    _render_analytics()
