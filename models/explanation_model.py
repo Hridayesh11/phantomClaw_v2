@@ -49,6 +49,9 @@ class ExplanationResult(BaseModel):
     position_summary: str = Field(
         ..., description="Summary of dynamic position sizing"
     )
+    portfolio_summary: str = Field(
+        ..., description="Summary of portfolio optimization"
+    )
     decision_summary: str = Field(
         ..., description="Overall summary of why the execution decision was made"
     )

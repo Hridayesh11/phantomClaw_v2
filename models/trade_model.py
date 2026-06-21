@@ -18,6 +18,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models.explanation_model import ExplanationResult
+from models.portfolio_model import PortfolioOptimizationResult
 from models.position_model import PositionSizingResult
 
 
@@ -193,6 +194,9 @@ class FullAnalysisResult(BaseModel):
     )
     explanation: Optional[ExplanationResult] = Field(
         default=None, description="Detailed explanation of the pipeline's reasoning"
+    )
+    portfolio_optimization: Optional[PortfolioOptimizationResult] = Field(
+        default=None, description="Portfolio optimization logic"
     )
     position_sizing: Optional[PositionSizingResult] = Field(
         default=None, description="Dynamic position sizing calculation result"

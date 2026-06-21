@@ -52,6 +52,7 @@ from market.indicators import get_indicator_summary
 from market.market_data import fetch_market_data, get_latest_price, validate_symbol
 from memory.trade_memory import save_memory
 from models.trade_model import FullAnalysisResult
+from portfolio.optimizer import optimize_position
 from risk.position_sizer import calculate_position_size
 from services.explanation_service import generate_explanation
 
@@ -158,6 +159,29 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
     if trade_recommendation.action in ("BUY", "SELL"):
         trade_recommendation.quantity = position_sizing.quantity
 
+    # ── Step 5.7: Portfolio Optimization ───────────────────────────────────────
+    logger.info("[4.7/9] Running Portfolio Optimizer for %s", symbol)
+    
+    current_portfolio_risk_percent = 2.0  # Simulated default portfolio risk
+    position_value = position_sizing.capital_exposure
+    position_risk_percent = (position_sizing.risk_amount / portfolio_value) * 100.0 if portfolio_value > 0 else 0.0
+    
+    portfolio_optimization = optimize_position(
+        portfolio_value=portfolio_value,
+        current_portfolio_risk_percent=current_portfolio_risk_percent,
+        position_value=position_value,
+        position_risk_percent=position_risk_percent,
+        quantity=trade_recommendation.quantity,
+    )
+    
+    if trade_recommendation.action in ("BUY", "SELL"):
+        if not portfolio_optimization.allowed_trade:
+            trade_recommendation.action = "HOLD"
+            trade_recommendation.quantity = 0
+            trade_recommendation.reason = portfolio_optimization.optimization_reason
+        else:
+            trade_recommendation.quantity = portfolio_optimization.adjusted_quantity
+
     # ── Step 6: Challenge Agent ────────────────────────────────────────────────
     logger.info("[5/9] Running Challenge Agent for %s", symbol)
     try:
@@ -198,6 +222,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
         execution_decision,
         votes,
         position_sizing,
+        portfolio_optimization,
     )
 
     # ── Step 10: Persist to database (exactly once) ────────────────────────────
@@ -244,6 +269,7 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
         trust_assessment=trust_assessment,
         execution_decision=execution_decision,
         explanation=explanation,
+        portfolio_optimization=portfolio_optimization,
         position_sizing=position_sizing,
         market_snapshot=market_snapshot,
         technical_indicators=technical_indicators,

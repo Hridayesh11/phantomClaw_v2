@@ -494,6 +494,32 @@ def _render_result(result: FullAnalysisResult, symbol: str) -> None:
         p7.metric("Stop Distance", f"${pos.stop_distance:.4f}")
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # ── 10. Portfolio Optimization ────────────────────────────────────────────
+    if getattr(result, "portfolio_optimization", None):
+        opt = result.portfolio_optimization
+        st.markdown("<hr class='pc-divider'>", unsafe_allow_html=True)
+        st.markdown("<div class='pc-card-title' style='font-size:1rem;color:#e6edf3'>💼 PORTFOLIO OPTIMIZATION</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='pc-card'>", unsafe_allow_html=True)
+        o1, o2, o3 = st.columns(3)
+        o1.metric("Trade Allowed", "YES" if opt.allowed_trade else "NO")
+        o2.metric("Adjusted Quantity", f"{opt.adjusted_quantity:,}")
+        o3.metric("Optimization Method", opt.optimization_method)
+        
+        st.markdown("<div style='margin:1rem 0'></div>", unsafe_allow_html=True)
+        
+        o4, o5, o6 = st.columns(3)
+        o4.metric("Portfolio Risk %", f"{opt.portfolio_risk_percent:.2f}%")
+        o5.metric("Position Risk %", f"{opt.position_risk_percent:.2f}%")
+        o6.metric("Capital Exposure %", f"{opt.capital_exposure_percent:.2f}%")
+        
+        st.markdown("<div style='margin:1rem 0'></div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<p style='color:#8b949e;font-size:0.87rem;margin:0'><b style='color:#e6edf3'>Reason:</b> {opt.optimization_reason}</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
 def _render_history() -> None:
     """Render the live trade history table."""

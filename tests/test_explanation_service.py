@@ -6,6 +6,7 @@ Tests for the Phase 9 Explainability Layer.
 
 from models.agent_vote_model import AgentVote
 from models.explanation_model import ExplanationResult
+from models.portfolio_model import PortfolioOptimizationResult
 from models.position_model import PositionSizingResult
 from models.trade_model import (
     ChallengeResult,
@@ -70,6 +71,19 @@ def get_position_sizing() -> PositionSizingResult:
         position_method="ATR"
     )
 
+def get_portfolio_optimization() -> PortfolioOptimizationResult:
+    return PortfolioOptimizationResult(
+        allowed_trade=True,
+        adjusted_quantity=71,
+        portfolio_risk_percent=2.5,
+        position_risk_percent=1.0,
+        capital_exposure_percent=10.0,
+        correlation_penalty=0.0,
+        sector_penalty=0.0,
+        optimization_reason="Kelly sizing applied.",
+        optimization_method="KELLY"
+    )
+
 # ─── Tests ───────────────────────────────────────────────────────────────────
 
 def test_explanation_buy_execute():
@@ -77,7 +91,7 @@ def test_explanation_buy_execute():
     dec = get_decision("EXECUTE")
     
     result = generate_explanation(
-        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing()
+        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing(), get_portfolio_optimization()
     )
     
     assert isinstance(result, ExplanationResult)
@@ -99,7 +113,7 @@ def test_explanation_sell_execute():
     dec = get_decision("EXECUTE")
     
     result = generate_explanation(
-        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing()
+        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing(), get_portfolio_optimization()
     )
     
     assert result.final_decision == "EXECUTE"
@@ -110,7 +124,7 @@ def test_explanation_hold_block():
     dec = get_decision("BLOCK")
     
     result = generate_explanation(
-        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing()
+        rec, get_challenge(), get_risk(), get_trust(), dec, get_base_votes(), get_position_sizing(), get_portfolio_optimization()
     )
     
     assert result.final_decision == "BLOCK"
@@ -120,7 +134,7 @@ def test_risk_summary_no_factors():
     risk = RiskAssessment(risk_score=10, risk_level="LOW", risk_factors=[])
     
     result = generate_explanation(
-        get_recommendation("BUY"), get_challenge(), risk, get_trust(), get_decision("EXECUTE"), get_base_votes(), get_position_sizing()
+        get_recommendation("BUY"), get_challenge(), risk, get_trust(), get_decision("EXECUTE"), get_base_votes(), get_position_sizing(), get_portfolio_optimization()
     )
     
     assert "Factors: None" in result.risk_summary
@@ -129,7 +143,7 @@ def test_trust_summary_content():
     trust = TrustAssessment(trust_score=30, trust_level="LOW")
     
     result = generate_explanation(
-        get_recommendation("BUY"), get_challenge(), get_risk(), trust, get_decision("BLOCK"), get_base_votes(), get_position_sizing()
+        get_recommendation("BUY"), get_challenge(), get_risk(), trust, get_decision("BLOCK"), get_base_votes(), get_position_sizing(), get_portfolio_optimization()
     )
     
     assert "Trust Level: LOW (Score: 30)" in result.trust_summary

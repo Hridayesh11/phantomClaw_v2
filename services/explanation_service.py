@@ -9,6 +9,7 @@ No OpenAI calls. No database writes. No Streamlit imports. No FastAPI imports.
 
 from models.agent_vote_model import AgentVote
 from models.explanation_model import AgentExplanation, ExplanationResult
+from models.portfolio_model import PortfolioOptimizationResult
 from models.position_model import PositionSizingResult
 from models.trade_model import (
     ChallengeResult,
@@ -27,6 +28,7 @@ def generate_explanation(
     decision: ExecutionDecision,
     votes: list[AgentVote],
     position_sizing: PositionSizingResult,
+    portfolio_optimization: PortfolioOptimizationResult,
 ) -> ExplanationResult:
     """
     Generate a deterministic explanation for the complete pipeline execution.
@@ -64,6 +66,13 @@ def generate_explanation(
         f"Capital: ${position_sizing.capital_exposure:.2f}"
     )
 
+    portfolio_summary = (
+        f"Method: {portfolio_optimization.optimization_method} | "
+        f"Portfolio Risk: {portfolio_optimization.portfolio_risk_percent:.2f}% | "
+        f"Pos Risk: {portfolio_optimization.position_risk_percent:.2f}% | "
+        f"Reason: {portfolio_optimization.optimization_reason}"
+    )
+
     decision_summary = f"Final decision was to {decision.decision}. {decision.rationale}"
 
     return ExplanationResult(
@@ -74,5 +83,6 @@ def generate_explanation(
         risk_summary=risk_summary,
         trust_summary=trust_summary,
         position_summary=position_summary,
+        portfolio_summary=portfolio_summary,
         decision_summary=decision_summary,
     )
