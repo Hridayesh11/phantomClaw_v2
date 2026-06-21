@@ -18,7 +18,7 @@ RULES
 -----
   BUY  signal: RSI < 30 AND MACD > 0  (oversold + bullish momentum)
   SELL signal: RSI > 70 AND MACD < 0  (overbought + bearish momentum)
-  Otherwise:   no-conviction BUY with quantity=0 (passive / skip)
+  Otherwise:   HOLD with quantity=0 (no active trade)
 
 DESIGN CONTRACT
 ---------------
@@ -66,13 +66,13 @@ def generate_strategy_recommendation(
 
     Returns:
         A validated TradeRecommendation Pydantic model.
-        quantity=0 signals no active trade (passive bar — Execution Controller
-        will rate this as low confidence and likely BLOCK).
+        HOLD (quantity=0) signals no active trade — the Execution Controller
+        will treat this as a pass-through bar.
 
     Signal logic:
         BUY  → RSI < 30 AND MACD > 0
         SELL → RSI > 70 AND MACD < 0
-        ELSE → no-conviction BUY, quantity=0, confidence=0.3
+        HOLD → no high-conviction setup (quantity=0)
     """
     rsi: float | None = indicators.get("rsi")
     macd: float | None = indicators.get("macd")
@@ -105,14 +105,14 @@ def generate_strategy_recommendation(
             reason="Overbought market with bearish MACD momentum",
         )
 
-    # ── No high-conviction setup ───────────────────────────────────────────────
+    # ── No high-conviction setup ───────────────────────────────────────────────────────────
     logger.debug(
         "Strategy: no signal for %s | RSI=%s, MACD=%s",
         symbol, rsi, macd,
     )
     return TradeRecommendation(
         symbol=symbol.upper(),
-        action="BUY",
+        action="HOLD",
         quantity=0,
         confidence=_NO_SIGNAL_CONFIDENCE,
         reason="No high-conviction setup",

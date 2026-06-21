@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ─── OpenClaw Agent Output ────────────────────────────────────────────────────
@@ -23,15 +23,20 @@ from pydantic import BaseModel, Field, field_validator
 
 class TradeRecommendation(BaseModel):
     """
-    Raw trade recommendation produced by the OpenClaw agent.
+    Raw trade recommendation produced by the OpenClaw agent or ConsensusEngine.
 
-    `action` is constrained to exactly "BUY" or "SELL".
+    `action` is constrained to "BUY", "SELL", or "HOLD".
     `confidence` must be in [0.0, 1.0].
+
+    Cross-field validation rules:
+        BUY  → quantity must be > 0
+        SELL → quantity must be > 0
+        HOLD → quantity must be exactly 0
     """
 
     symbol: str = Field(..., description="Ticker symbol, e.g. 'AAPL'")
-    action: Literal["BUY", "SELL"] = Field(..., description="Trade direction")
-    quantity: int = Field(..., gt=0, description="Number of shares (must be positive)")
+    action: Literal["BUY", "SELL", "HOLD"] = Field(..., description="Trade direction")
+    quantity: int = Field(..., ge=0, description="Number of shares (0 for HOLD, positive for BUY/SELL)")
     confidence: float = Field(..., description="Model confidence in the recommendation [0.0–1.0]")
     reason: str = Field(..., description="Human-readable rationale for the trade")
 
@@ -42,6 +47,24 @@ class TradeRecommendation(BaseModel):
         if not (0.0 <= v <= 1.0):
             raise ValueError(f"confidence must be between 0.0 and 1.0, got {v}")
         return round(v, 6)
+
+    @model_validator(mode="after")
+    def action_quantity_consistent(self) -> "TradeRecommendation":
+        """
+        Enforce action/quantity consistency:
+            BUY  → quantity > 0
+            SELL → quantity > 0
+            HOLD → quantity == 0
+        """
+        if self.action in ("BUY", "SELL") and self.quantity == 0:
+            raise ValueError(
+                f"action='{self.action}' requires quantity > 0, got quantity=0."
+            )
+        if self.action == "HOLD" and self.quantity != 0:
+            raise ValueError(
+                f"action='HOLD' requires quantity=0, got quantity={self.quantity}."
+            )
+        return self
 
 
 # ─── Challenge Agent Output ───────────────────────────────────────────────────

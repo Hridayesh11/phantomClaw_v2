@@ -57,19 +57,31 @@ class TestTradeRecommendation:
                 reason="Bullish",
             )
 
+    def test_valid_hold_recommendation(self):
+        """HOLD is now a first-class action — must succeed with quantity=0."""
+        rec = TradeRecommendation(
+            symbol="AAPL",
+            action="HOLD",
+            quantity=0,
+            confidence=0.5,
+            reason="No signal",
+        )
+        assert rec.action == "HOLD"
+        assert rec.quantity == 0
+
     def test_invalid_action_raises(self):
-        """action must be exactly 'BUY' or 'SELL'."""
+        """Only 'BUY', 'SELL', 'HOLD' are valid actions."""
         with pytest.raises(ValidationError):
             TradeRecommendation(
                 symbol="AAPL",
-                action="HOLD",
+                action="WAIT",
                 quantity=10,
                 confidence=0.7,
                 reason="Test",
             )
 
-    def test_zero_quantity_raises(self):
-        """quantity must be > 0."""
+    def test_buy_zero_quantity_raises(self):
+        """BUY + quantity=0 must raise — BUY requires quantity > 0."""
         with pytest.raises(ValidationError):
             TradeRecommendation(
                 symbol="AAPL",
@@ -78,6 +90,39 @@ class TestTradeRecommendation:
                 confidence=0.7,
                 reason="Test",
             )
+
+    def test_sell_zero_quantity_raises(self):
+        """SELL + quantity=0 must raise — SELL requires quantity > 0."""
+        with pytest.raises(ValidationError):
+            TradeRecommendation(
+                symbol="AAPL",
+                action="SELL",
+                quantity=0,
+                confidence=0.7,
+                reason="Test",
+            )
+
+    def test_hold_nonzero_quantity_raises(self):
+        """HOLD + quantity > 0 must raise — HOLD requires quantity == 0."""
+        with pytest.raises(ValidationError):
+            TradeRecommendation(
+                symbol="AAPL",
+                action="HOLD",
+                quantity=5,
+                confidence=0.5,
+                reason="Test",
+            )
+
+    def test_zero_quantity_with_hold_is_valid(self):
+        """quantity=0 is valid only when action=HOLD."""
+        rec = TradeRecommendation(
+            symbol="AAPL",
+            action="HOLD",
+            quantity=0,
+            confidence=0.3,
+            reason="No setup",
+        )
+        assert rec.quantity == 0
 
     def test_confidence_boundary_zero(self):
         """confidence=0.0 is valid (lower boundary)."""
