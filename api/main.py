@@ -32,7 +32,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import analyze, health, history, market
+from api.routes import analyze, health, history, market, portfolio, ledger
 from api.schemas.responses import ErrorResponse, RootResponse
 from database.db import init_db
 from utils.config import config
@@ -235,3 +235,5 @@ app.include_router(health.router)
 app.include_router(market.router)
 app.include_router(analyze.router)
 app.include_router(history.router)
+app.include_router(portfolio.router)
+app.include_router(ledger.router)
