@@ -30,6 +30,10 @@ class Config:
     UPSTOX_REQUEST_TIMEOUT: float = float(os.getenv("UPSTOX_REQUEST_TIMEOUT", "10.0"))
     MARKET_CACHE_TTL: int = int(os.getenv("MARKET_CACHE_TTL", "30"))
 
+    # --- Trading Engine Config ---
+    PAPER_BROKERAGE_FEE_PCT: float = float(os.getenv("PAPER_BROKERAGE_FEE_PCT", "0.001"))
+    PAPER_SLIPPAGE_PCT: float = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0005"))
+
     # --- Database ---
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./database/trades.db")
 

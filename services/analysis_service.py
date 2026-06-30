@@ -206,6 +206,21 @@ async def run_full_analysis(symbol: str) -> FullAnalysisResult:
     logger.info("[8/9] Running Execution Controller for %s", symbol)
     execution_decision = make_decision(trust_assessment)
 
+    # ── Step 9.2: Trading Engine (Execution Orchestrator) ────────────────────
+    logger.info("[8.2/9] Running Trading Engine for %s", symbol)
+    from trading.engine import get_trading_engine
+    engine = get_trading_engine()
+    trade_fill = engine.execute_signal(
+        recommendation=trade_recommendation,
+        decision=execution_decision,
+        current_price=market_snapshot.get("current_price", 0.0)
+    )
+    if trade_fill:
+        logger.info(
+            "Executed trade fill: %s %d %s @ %.2f", 
+            trade_fill.side.value, trade_fill.quantity, trade_fill.symbol, trade_fill.price
+        )
+
     # ── Step 9.5: Explanation Layer ───────────────────────────────────────────
     logger.info("[8.5/9] Generating Explanation for %s", symbol)
     votes = [

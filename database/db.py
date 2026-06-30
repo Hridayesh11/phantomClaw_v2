@@ -129,6 +129,43 @@ class TradeLog(Base):
         }
 
 
+class ExecutionLog(Base):
+    """
+    ORM model representing a fulfilled trade execution from the Trading Engine.
+    """
+    __tablename__ = "execution_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fill_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    order_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    
+    fees: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    slippage: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "fill_id": self.fill_id,
+            "order_id": self.order_id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "quantity": self.quantity,
+            "price": self.price,
+            "fees": self.fees,
+            "slippage": self.slippage,
+            "timestamp": self.timestamp,
+        }
+
+
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 
@@ -261,6 +298,52 @@ def get_trades_by_symbol(symbol: str, limit: int = 50) -> list[dict]:
             .where(TradeLog.symbol == symbol.upper())
             .order_by(TradeLog.timestamp.desc())
             .limit(limit)
+        ).scalars().all()
+
+    return [row.to_dict() for row in rows]
+
+
+def save_execution_log(
+    *,
+    fill_id: str,
+    order_id: str,
+    symbol: str,
+    side: str,
+    quantity: int,
+    price: float,
+    fees: float,
+    slippage: float,
+    timestamp: datetime
+) -> int:
+    """Persist a single trade fill to the execution_logs table."""
+    record = ExecutionLog(
+        fill_id=fill_id,
+        order_id=order_id,
+        symbol=symbol.upper(),
+        side=side.upper(),
+        quantity=quantity,
+        price=price,
+        fees=fees,
+        slippage=slippage,
+        timestamp=timestamp,
+    )
+
+    with Session(engine) as session:
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        new_id: int = record.id  # type: ignore[assignment]
+
+    logger.info("Saved execution log #%d: %s %d %s @ %.2f", new_id, side, quantity, symbol, price)
+    return new_id
+
+
+def get_all_execution_logs() -> list[dict]:
+    """Return all execution logs ordered by timestamp ascending."""
+    with Session(engine) as session:
+        rows = session.execute(
+            select(ExecutionLog)
+            .order_by(ExecutionLog.timestamp.asc())
         ).scalars().all()
 
     return [row.to_dict() for row in rows]
