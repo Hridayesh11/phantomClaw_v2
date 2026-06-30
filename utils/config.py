@@ -22,6 +22,14 @@ class Config:
     # --- Backend ---
     FASTAPI_URL: str = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
+    # --- Market Data (Upstox) ---
+    UPSTOX_API_KEY: str = os.getenv("UPSTOX_API_KEY", "")
+    UPSTOX_API_SECRET: str = os.getenv("UPSTOX_API_SECRET", "")
+    UPSTOX_REDIRECT_URI: str = os.getenv("UPSTOX_REDIRECT_URI", "")
+    UPSTOX_ACCESS_TOKEN: str = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+    UPSTOX_REQUEST_TIMEOUT: float = float(os.getenv("UPSTOX_REQUEST_TIMEOUT", "10.0"))
+    MARKET_CACHE_TTL: int = int(os.getenv("MARKET_CACHE_TTL", "30"))
+
     # --- Database ---
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./database/trades.db")
 

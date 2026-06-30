@@ -32,7 +32,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
-import yfinance as yf
+
+from market_data.provider_factory import get_market_provider
 
 from backtesting.metrics import calculate_all_metrics
 from backtesting.portfolio import Portfolio
@@ -171,15 +172,13 @@ def run_backtest(
     )
 
     try:
-        ticker = yf.Ticker(symbol)
-        full_df = ticker.history(
-            start=start_fetch.strftime("%Y-%m-%d"),
-            end=end_date.strftime("%Y-%m-%d"),
+        provider = get_market_provider()
+        full_df = provider.fetch_history(
+            symbol=symbol,
+            start_date=start_fetch,
+            end_date=end_date,
             interval="1d",
         )
-        if not full_df.empty:
-            full_df = full_df[["Open", "High", "Low", "Close", "Volume"]].copy()
-            full_df.dropna(inplace=True)
     except Exception as exc:
         logger.error("Failed to fetch market data for %s: %s", symbol, exc)
         full_df = pd.DataFrame()

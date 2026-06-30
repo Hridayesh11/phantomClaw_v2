@@ -1,18 +1,27 @@
 """
 market/market_data.py
 ---------------------
-Fetches real OHLCV market data from Yahoo Finance via yfinance.
-Provides both historical DataFrames and a current-price snapshot.
+Public interface for fetching market data in PhantomClaw v3.
+
+All calls delegate to the MarketDataProvider singleton (Upstox).
+This module provides convenience functions used by:
+  - services/analysis_service.py
+  - api/routes/market.py
+  - app.py (Streamlit)
+  - backtesting/backtest_engine.py
+
+No market data logic lives here — it is purely a delegation layer.
 """
 
 import logging
-import yfinance as yf
+from datetime import datetime, timedelta
+from typing import Optional
+
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+from market_data.provider_factory import get_market_provider
 
-# Supported ticker symbols (can be extended)
-SUPPORTED_SYMBOLS = {"AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"}
+logger = logging.getLogger(__name__)
 
 
 def validate_symbol(symbol: str) -> str:
@@ -27,10 +36,10 @@ def fetch_market_data(
     interval: str = "1d",
 ) -> pd.DataFrame:
     """
-    Fetch OHLCV data for a symbol using yfinance.
+    Fetch OHLCV data for a symbol via the MarketDataProvider (Upstox).
 
     Args:
-        symbol:   Ticker symbol, e.g. 'AAPL'
+        symbol:   Ticker symbol, e.g. 'RELIANCE'
         period:   How far back to fetch ('1d', '5d', '1mo', '3mo', '6mo', '1y', '2y')
         interval: Bar size ('1m', '5m', '15m', '1h', '1d', '1wk', '1mo')
 
@@ -39,64 +48,28 @@ def fetch_market_data(
         Indexed by datetime. Empty DataFrame on failure.
     """
     symbol = validate_symbol(symbol)
-    logger.info("Fetching market data for %s [period=%s, interval=%s]", symbol, period, interval)
 
-    try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period=period, interval=interval)
+    # Map 'period' to start/end dates
+    end_date = datetime.now().date()
+    period_days = {
+        "1d": 1, "5d": 5, "1mo": 30, "3mo": 90,
+        "6mo": 180, "1y": 365, "2y": 730,
+    }
+    start_date = end_date - timedelta(days=period_days.get(period, 90))
 
-        if df.empty:
-            logger.warning("No data returned for %s", symbol)
-            return pd.DataFrame()
-
-        # Keep only standard OHLCV columns
-        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-        df.dropna(inplace=True)
-
-        logger.info("Fetched %d bars for %s", len(df), symbol)
-        return df
-
-    except Exception as exc:
-        logger.error("Failed to fetch market data for %s: %s", symbol, exc)
-        return pd.DataFrame()
+    provider = get_market_provider()
+    return provider.fetch_history(
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        interval=interval,
+    )
 
 
 def get_latest_price(symbol: str) -> dict:
     """
-    Return a dict with the most recent price info for a symbol.
-
-    Returns:
-        {
-            "symbol": str,
-            "current_price": float,
-            "open": float,
-            "high": float,
-            "low": float,
-            "close": float,
-            "volume": int,
-        }
+    Return a dict with the most recent price info for a symbol via the MarketDataProvider.
     """
     symbol = validate_symbol(symbol)
-    df = fetch_market_data(symbol, period="5d", interval="1d")
-
-    if df.empty:
-        return {
-            "symbol": symbol,
-            "current_price": 0.0,
-            "open": 0.0,
-            "high": 0.0,
-            "low": 0.0,
-            "close": 0.0,
-            "volume": 0,
-        }
-
-    latest = df.iloc[-1]
-    return {
-        "symbol": symbol,
-        "current_price": round(float(latest["Close"]), 2),
-        "open": round(float(latest["Open"]), 2),
-        "high": round(float(latest["High"]), 2),
-        "low": round(float(latest["Low"]), 2),
-        "close": round(float(latest["Close"]), 2),
-        "volume": int(latest["Volume"]),
-    }
+    provider = get_market_provider()
+    return provider.fetch_latest_snapshot(symbol)
